@@ -11,6 +11,27 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import subprocess
+import time
+import requests
+import os
+import sys
+
+# Auto-start FastAPI background server if not reachable
+def ensure_backend_running():
+    try:
+        requests.get("http://127.0.0.1:8000/docs", timeout=1)
+    except Exception:
+        # Start backend uvicorn process
+        subprocess.Popen(
+            [sys.executable, "-m", "uvicorn", "backend.app.app:app", "--host", "127.0.0.1", "--port", "8000"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        time.sleep(2)
+
+ensure_backend_running()
+
 API_URL = "http://127.0.0.1:8000/api/v1"
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
 
