@@ -23,6 +23,7 @@ networkx>=3.2.0
 neo4j>=5.18.0
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch
+torch-geometric
 
 # AI Copilot & Document Generation
 groq>=0.5.0
