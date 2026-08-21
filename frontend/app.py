@@ -1,39 +1,77 @@
-import streamlit as st
-import requests
-import pandas as pd
-from pyvis.network import Network
-import streamlit.components.v1 as components
-import json
-import plotly.express as px
-
 import os
-from dotenv import load_dotenv
-
-load_dotenv()
-
+import sys
 import subprocess
 import time
 import requests
-import os
-import sys
+import json
+import pandas as pd
+import streamlit as st
+import streamlit.components.v1 as components
+import plotly.express as px
+from pyvis.network import Network
+from dotenv import load_dotenv
 
-# Auto-start FastAPI background server if not reachable
-def ensure_backend_running():
+# Load local environment variables if available
+load_dotenv()
+
+# ==========================================
+# BACKGROUND FASTAPI SERVICE ORCHESTRATOR
+# ==========================================
+def ensure_backend_alive():
+    """Starts FastAPI in a background subprocess if it is not already running."""
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    backend_app_dir = os.path.join(base_dir, "backend", "app")
+
+    # Check if backend is already responding
     try:
-        requests.get("http://127.0.0.1:8000/docs", timeout=1)
+        res = requests.get("http://127.0.0.1:8000/docs", timeout=1)
+        if res.status_code == 200:
+            return True
     except Exception:
-        # Start backend uvicorn process
+        pass
+
+    # Configure Python environment path
+    env = os.environ.copy()
+    env["PYTHONPATH"] = f"{base_dir}:{backend_app_dir}:{env.get('PYTHONPATH', '')}"
+
+    # Spawn FastAPI server via uvicorn
+    try:
         subprocess.Popen(
-            [sys.executable, "-m", "uvicorn", "backend.app.app:app", "--host", "127.0.0.1", "--port", "8000"],
+            [sys.executable, "-m", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", "8000"],
+            cwd=backend_app_dir,
+            env=env,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
-        time.sleep(2)
+    except Exception as e:
+        st.warning(f"Could not spawn backend process: {e}")
 
-ensure_backend_running()
+    # Poll until ready (up to 10 seconds)
+    for _ in range(10):
+        time.sleep(1)
+        try:
+            res = requests.get("http://127.0.0.1:8000/docs", timeout=1)
+            if res.status_code == 200:
+                return True
+        except Exception:
+            continue
 
+    return False
+
+# Initialize backend service
+ensure_backend_alive()
+
+# ==========================================
+# CONFIGURATION & SECRETS
+# ==========================================
 API_URL = "http://127.0.0.1:8000/api/v1"
-GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
+
+# Read Google Maps API key from Streamlit secrets or OS env
+GOOGLE_MAPS_API_KEY = ""
+if hasattr(st, "secrets") and "GOOGLE_MAPS_API_KEY" in st.secrets:
+    GOOGLE_MAPS_API_KEY = st.secrets["GOOGLE_MAPS_API_KEY"]
+else:
+    GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
 
 st.set_page_config(
     page_title="Chandigarh Police - Digital Footprint Analytics",
@@ -102,7 +140,6 @@ with st.sidebar:
         except Exception as e:
             st.sidebar.error(f"Error clearing backend database: {e}")
 
-        # Wipe frontend state keys and reinitialize copilot
         st.session_state.clear()
         st.session_state.copilot_messages = [
             {"role": "assistant", "content": "Hello Inspector. I have correlated all ingested case logs. How can I assist your investigation?"}
@@ -114,12 +151,12 @@ with st.sidebar:
 # FETCH CURRENT STATE (DIRECT DB VIA BACKEND)
 # ==========================================
 try:
-    records_res = requests.get(f"{API_URL}/records/all").json()
-    graph_res = requests.get(f"{API_URL}/analytics/graph").json()
-    anomalies_res = requests.get(f"{API_URL}/analytics/anomalies").json()
-    timeline_res = requests.get(f"{API_URL}/analytics/timeline").json()
+    records_res = requests.get(f"{API_URL}/records/all", timeout=5).json()
+    graph_res = requests.get(f"{API_URL}/analytics/graph", timeout=5).json()
+    anomalies_res = requests.get(f"{API_URL}/analytics/anomalies", timeout=5).json()
+    timeline_res = requests.get(f"{API_URL}/analytics/timeline", timeout=5).json()
 except Exception:
-    st.error("Cannot connect to backend server. Ensure FastAPI is running on port 8000.")
+    st.error("Cannot connect to backend server. Initializing background FastAPI instance...")
     st.stop()
 
 # ==========================================
@@ -227,7 +264,7 @@ with tab2:
     
     st.markdown("### 🧠 GNN Graph Neural Topological Risk Scores")
     try:
-        gnn_res = requests.get(f"{API_URL}/gnn/scores").json()
+        gnn_res = requests.get(f"{API_URL}/gnn/scores", timeout=5).json()
         scores = gnn_res.get("scores", [])
         if scores:
             gnn_cols = st.columns(min(len(scores[:4]), 4))
@@ -253,7 +290,7 @@ with tab2:
             desc = alert.get("description", "")
             time_flag = alert.get("timestamp", "")
             
-            if sev == "CRITICAL" or sev == "HIGH":
+            if sev in ["CRITICAL", "HIGH"]:
                 st.error(f"**[{sev}] {cat}** ({time_flag})\n\n{desc}")
             else:
                 st.warning(f"**[{sev}] {cat}** ({time_flag})\n\n{desc}")
