@@ -1,5 +1,3 @@
-cat << 'EOF' > packages.txt
 build-essential
 graphviz
 libgl1
-EOF
