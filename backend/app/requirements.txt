@@ -1,0 +1,28 @@
+# Web Framework & Server
+fastapi>=0.110.0
+uvicorn>=0.28.0
+python-multipart>=0.0.9
+pydantic>=2.6.0
+requests>=2.31.0
+python-dotenv>=1.0.1
+
+# Frontend & Visualizations
+streamlit>=1.32.0
+pyvis>=0.3.2
+plotly>=5.19.0
+
+# Data Processing & Persistence
+pandas>=2.2.0
+polars>=0.20.0
+numpy>=1.26.0
+sqlalchemy>=2.0.0
+pdfplumber>=0.10.3
+
+# Graph & Neural Analytics
+networkx>=3.2.0
+neo4j>=5.18.0
+torch>=2.2.0
+
+# AI Copilot & Document Generation
+groq>=0.5.0
+reportlab>=4.1.0
