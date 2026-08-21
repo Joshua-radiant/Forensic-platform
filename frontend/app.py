@@ -14,51 +14,56 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ==========================================
-# BACKGROUND FASTAPI THREAD LAUNCHER
+# BACKGROUND FASTAPI ORCHESTRATOR
 # ==========================================
 base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 backend_app_dir = os.path.join(base_dir, "backend", "app")
 
-if base_dir not in sys.path:
-    sys.path.insert(0, base_dir)
-if backend_app_dir not in sys.path:
-    sys.path.insert(0, backend_app_dir)
+for path in [base_dir, backend_app_dir, os.path.join(base_dir, "backend")]:
+    if path not in sys.path:
+        sys.path.insert(0, path)
 
-def run_uvicorn():
+def run_uvicorn_in_thread():
     import uvicorn
-    # Change working directory so sqlite/db references stay consistent
     os.chdir(backend_app_dir)
     try:
+        from backend.app.app import app as fastapi_app
+    except ImportError:
         from app import app as fastapi_app
-        uvicorn.run(fastapi_app, host="127.0.0.1", port=8000, log_level="warning")
-    except Exception as e:
-        print(f"Backend launch error: {e}", file=sys.stderr)
+
+    config = uvicorn.Config(
+        app=fastapi_app,
+        host="127.0.0.1",
+        port=8000,
+        log_level="info",
+        loop="asyncio"
+    )
+    server = uvicorn.Server(config)
+    # Disable OS signal handlers so it runs smoothly in a secondary daemon thread
+    server.install_signal_handlers = lambda: None
+    server.run()
 
 @st.cache_resource
-def start_backend_service():
-    # Check if already answering
+def start_fastapi():
     try:
-        res = requests.get("http://127.0.0.1:8000/docs", timeout=1)
-        if res.status_code == 200:
+        if requests.get("http://127.0.0.1:8000/docs", timeout=1).status_code == 200:
             return True
     except Exception:
         pass
 
-    server_thread = threading.Thread(target=run_uvicorn, daemon=True)
-    server_thread.start()
+    th = threading.Thread(target=run_uvicorn_in_thread, daemon=True)
+    th.start()
 
-    # Wait up to 10 seconds for initial startup
-    for _ in range(10):
+    for _ in range(12):
         time.sleep(1)
         try:
-            res = requests.get("http://127.0.0.1:8000/docs", timeout=1)
-            if res.status_code == 200:
+            if requests.get("http://127.0.0.1:8000/docs", timeout=1).status_code == 200:
                 return True
         except Exception:
             continue
     return False
 
-backend_ready = start_backend_service()
+start_fastapi()
 
 # ==========================================
 # CONFIGURATION & SECRETS
@@ -71,7 +76,6 @@ if hasattr(st, "secrets") and "GOOGLE_MAPS_API_KEY" in st.secrets:
 else:
     GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
 
-# Pass secrets to os.environ for backend modules that use os.getenv
 if hasattr(st, "secrets"):
     if "GROQ_API_KEY" in st.secrets:
         os.environ["GROQ_API_KEY"] = st.secrets["GROQ_API_KEY"]
@@ -156,13 +160,15 @@ with st.sidebar:
 # FETCH CURRENT STATE (DIRECT DB VIA BACKEND)
 # ==========================================
 try:
-    records_res = requests.get(f"{API_URL}/records/all", timeout=5).json()
-    graph_res = requests.get(f"{API_URL}/analytics/graph", timeout=5).json()
-    anomalies_res = requests.get(f"{API_URL}/analytics/anomalies", timeout=5).json()
-    timeline_res = requests.get(f"{API_URL}/analytics/timeline", timeout=5).json()
+    records_res = requests.get(f"{API_URL}/records/all", timeout=6).json()
+    graph_res = requests.get(f"{API_URL}/analytics/graph", timeout=6).json()
+    anomalies_res = requests.get(f"{API_URL}/analytics/anomalies", timeout=6).json()
+    timeline_res = requests.get(f"{API_URL}/analytics/timeline", timeout=6).json()
 except Exception as e:
     st.error(f"Cannot connect to backend server on port 8000: {e}")
-    st.info("If this is the first boot, refresh the page in 5 seconds.")
+    st.info("FastAPI backend is spinning up. Please click Rerun in 5 seconds.")
+    if st.button("🔄 Retry Connection"):
+        st.rerun()
     st.stop()
 
 # ==========================================
@@ -209,7 +215,8 @@ with tab1:
                 <span style="height: 12px; width: 12px; background-color: #E91E63; border-radius: 50%; display: inline-block;"></span>
                 <b>Social / OSINT Handle</b>
             </div>
-            <div style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: #FF9800; border-radius: 50%; display: inline-block;"></span>
+            <div style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: #FFF;">
+                <span style="height: 12px; width: 12px; background-color: #FF9800; border-radius: 50%; display: inline-block;"></span>
                 <b>Bank Account / Mule</b>
             </div>
         </div>
