@@ -1,6 +1,6 @@
 import os
 import sys
-import subprocess
+import threading
 import time
 import requests
 import json
@@ -11,18 +11,32 @@ import plotly.express as px
 from pyvis.network import Network
 from dotenv import load_dotenv
 
-# Load local environment variables if available
 load_dotenv()
 
 # ==========================================
-# BACKGROUND FASTAPI SERVICE ORCHESTRATOR
+# BACKGROUND FASTAPI THREAD LAUNCHER
 # ==========================================
-def ensure_backend_alive():
-    """Starts FastAPI in a background subprocess if it is not already running."""
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    backend_app_dir = os.path.join(base_dir, "backend", "app")
+base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+backend_app_dir = os.path.join(base_dir, "backend", "app")
 
-    # Check if backend is already responding
+if base_dir not in sys.path:
+    sys.path.insert(0, base_dir)
+if backend_app_dir not in sys.path:
+    sys.path.insert(0, backend_app_dir)
+
+def run_uvicorn():
+    import uvicorn
+    # Change working directory so sqlite/db references stay consistent
+    os.chdir(backend_app_dir)
+    try:
+        from app import app as fastapi_app
+        uvicorn.run(fastapi_app, host="127.0.0.1", port=8000, log_level="warning")
+    except Exception as e:
+        print(f"Backend launch error: {e}", file=sys.stderr)
+
+@st.cache_resource
+def start_backend_service():
+    # Check if already answering
     try:
         res = requests.get("http://127.0.0.1:8000/docs", timeout=1)
         if res.status_code == 200:
@@ -30,23 +44,10 @@ def ensure_backend_alive():
     except Exception:
         pass
 
-    # Configure Python environment path
-    env = os.environ.copy()
-    env["PYTHONPATH"] = f"{base_dir}:{backend_app_dir}:{env.get('PYTHONPATH', '')}"
+    server_thread = threading.Thread(target=run_uvicorn, daemon=True)
+    server_thread.start()
 
-    # Spawn FastAPI server via uvicorn
-    try:
-        subprocess.Popen(
-            [sys.executable, "-m", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", "8000"],
-            cwd=backend_app_dir,
-            env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
-    except Exception as e:
-        st.warning(f"Could not spawn backend process: {e}")
-
-    # Poll until ready (up to 10 seconds)
+    # Wait up to 10 seconds for initial startup
     for _ in range(10):
         time.sleep(1)
         try:
@@ -55,23 +56,27 @@ def ensure_backend_alive():
                 return True
         except Exception:
             continue
-
     return False
 
-# Initialize backend service
-ensure_backend_alive()
+backend_ready = start_backend_service()
 
 # ==========================================
 # CONFIGURATION & SECRETS
 # ==========================================
 API_URL = "http://127.0.0.1:8000/api/v1"
 
-# Read Google Maps API key from Streamlit secrets or OS env
 GOOGLE_MAPS_API_KEY = ""
 if hasattr(st, "secrets") and "GOOGLE_MAPS_API_KEY" in st.secrets:
     GOOGLE_MAPS_API_KEY = st.secrets["GOOGLE_MAPS_API_KEY"]
 else:
     GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
+
+# Pass secrets to os.environ for backend modules that use os.getenv
+if hasattr(st, "secrets"):
+    if "GROQ_API_KEY" in st.secrets:
+        os.environ["GROQ_API_KEY"] = st.secrets["GROQ_API_KEY"]
+    if "GOOGLE_MAPS_API_KEY" in st.secrets:
+        os.environ["GOOGLE_MAPS_API_KEY"] = st.secrets["GOOGLE_MAPS_API_KEY"]
 
 st.set_page_config(
     page_title="Chandigarh Police - Digital Footprint Analytics",
@@ -155,8 +160,9 @@ try:
     graph_res = requests.get(f"{API_URL}/analytics/graph", timeout=5).json()
     anomalies_res = requests.get(f"{API_URL}/analytics/anomalies", timeout=5).json()
     timeline_res = requests.get(f"{API_URL}/analytics/timeline", timeout=5).json()
-except Exception:
-    st.error("Cannot connect to backend server. Initializing background FastAPI instance...")
+except Exception as e:
+    st.error(f"Cannot connect to backend server on port 8000: {e}")
+    st.info("If this is the first boot, refresh the page in 5 seconds.")
     st.stop()
 
 # ==========================================
@@ -203,8 +209,7 @@ with tab1:
                 <span style="height: 12px; width: 12px; background-color: #E91E63; border-radius: 50%; display: inline-block;"></span>
                 <b>Social / OSINT Handle</b>
             </div>
-            <div style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: #FFF;">
-                <span style="height: 12px; width: 12px; background-color: #FF9800; border-radius: 50%; display: inline-block;"></span>
+            <div style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: #FF9800; border-radius: 50%; display: inline-block;"></span>
                 <b>Bank Account / Mule</b>
             </div>
         </div>
