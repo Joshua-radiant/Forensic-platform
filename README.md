@@ -33,3 +33,18 @@ cd Forensic-platform
 python -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 pip install -r backend/app/requirements.txt
+
+### 2. Configure the backend URL
+The frontend loads `BACKEND_URL` from the root `.env` file. Keep the local value for normal development, or replace it with the current ngrok URL whenever the backend is forwarded:
+
+```env
+BACKEND_URL=https://your-current-ngrok-url.ngrok-free.app
+```
+
+Run the frontend from the repository root so it loads `.env`:
+
+```bash
+streamlit run frontend/app.py
+```
+
+The app appends `/api/v1` automatically. Update `BACKEND_URL` and rerun the command whenever ngrok gives you a new URL.

@@ -7,6 +7,7 @@ import json
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
+from streamlit.errors import StreamlitSecretNotFoundError
 import plotly.express as px
 from pyvis.network import Network
 from dotenv import load_dotenv
@@ -68,19 +69,24 @@ start_fastapi()
 # ==========================================
 # CONFIGURATION & SECRETS
 # ==========================================
-API_URL = "http://127.0.0.1:8000/api/v1"
+BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000").rstrip("/")
+API_URL = f"{BACKEND_URL}/api/v1"
 
 GOOGLE_MAPS_API_KEY = ""
-if hasattr(st, "secrets") and "GOOGLE_MAPS_API_KEY" in st.secrets:
-    GOOGLE_MAPS_API_KEY = st.secrets["GOOGLE_MAPS_API_KEY"]
+try:
+    streamlit_secrets = dict(st.secrets)
+except StreamlitSecretNotFoundError:
+    streamlit_secrets = {}
+
+if "GOOGLE_MAPS_API_KEY" in streamlit_secrets:
+    GOOGLE_MAPS_API_KEY = streamlit_secrets["GOOGLE_MAPS_API_KEY"]
 else:
     GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
 
-if hasattr(st, "secrets"):
-    if "GROQ_API_KEY" in st.secrets:
-        os.environ["GROQ_API_KEY"] = st.secrets["GROQ_API_KEY"]
-    if "GOOGLE_MAPS_API_KEY" in st.secrets:
-        os.environ["GOOGLE_MAPS_API_KEY"] = st.secrets["GOOGLE_MAPS_API_KEY"]
+if "GROQ_API_KEY" in streamlit_secrets:
+    os.environ["GROQ_API_KEY"] = streamlit_secrets["GROQ_API_KEY"]
+if "GOOGLE_MAPS_API_KEY" in streamlit_secrets:
+    os.environ["GOOGLE_MAPS_API_KEY"] = streamlit_secrets["GOOGLE_MAPS_API_KEY"]
 
 st.set_page_config(
     page_title="Chandigarh Police - Digital Footprint Analytics",
@@ -165,7 +171,7 @@ try:
     anomalies_res = requests.get(f"{API_URL}/analytics/anomalies", timeout=6).json()
     timeline_res = requests.get(f"{API_URL}/analytics/timeline", timeout=6).json()
 except Exception as e:
-    st.error(f"Cannot connect to backend server on port 8000: {e}")
+    st.error(f"Cannot connect to backend server at {BACKEND_URL}: {e}")
     st.info("FastAPI backend is spinning up. Please click Rerun in 5 seconds.")
     if st.button("🔄 Retry Connection"):
         st.rerun()
